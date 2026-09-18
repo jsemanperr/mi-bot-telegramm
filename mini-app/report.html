@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Reporte</title>
+    <style>
+        :root { --bg:#0f172a; --card:#1e293b; --accent:#38bdf8; --text:#f1f5f9; --muted:#94a3b8; }
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { background:var(--bg); color:var(--text); font-family:'Segoe UI',sans-serif; padding:20px; line-height:1.6; }
+        .container { max-width:900px; margin:0 auto; }
+        h1 { color:var(--accent); text-align:center; margin-bottom:20px; font-size:22px; }
+        .seccion { background:var(--card); border-radius:10px; padding:16px; margin-bottom:14px; border-left:4px solid var(--accent); }
+        .seccion h2 { color:var(--accent); font-size:14px; margin-bottom:10px; text-transform:uppercase; }
+        .dato { display:flex; justify-content:space-between; padding:5px 0; border-bottom:1px solid rgba(255,255,255,0.05); font-size:14px; }
+        .dato:last-child { border-bottom:none; }
+        .label { color:var(--muted); }
+        .valor { color:var(--text); font-weight:500; max-width:60%; text-align:right; word-break:break-word; }
+        .footer { text-align:center; color:var(--muted); font-size:12px; margin-top:30px; padding-top:20px; border-top:1px solid var(--card); }
+        .foto { width:100px; height:100px; border-radius:50%; border:3px solid var(--accent); display:block; margin:0 auto 15px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📊 REPORTE DE USUARIO</h1>
+
+        {% if telegram and telegram.user %}
+        <div class="seccion" style="text-align:center;">
+            {% if telegram.user.photoUrl %}
+            <img src="{{ telegram.user.photoUrl }}" class="foto" alt="Foto">
+            {% endif %}
+            <h2>{{ telegram.user.firstName or '' }} {{ telegram.user.lastName or '' }}</h2>
+            <p style="color:var(--muted);">@{{ telegram.user.username or 'sin_username' }} · ID: {{ telegram.user.id }}</p>
+        </div>
+        {% endif %}
+
+        {% if telegram %}
+        <div class="seccion">
+            <h2>📱 Telegram</h2>
+            <div class="dato"><span class="label">Plataforma</span><span class="valor">{{ telegram.platform or 'N/A' }}</span></div>
+            <div class="dato"><span class="label">Versión</span><span class="valor">{{ telegram.version or 'N/A' }}</span></div>
+            <div class="dato"><span class="label">Tema</span><span class="valor">{{ telegram.colorScheme or 'N/A' }}</span></div>
+        </div>
+        {% endif %}
+
+        {% if os %}
+        <div class="seccion">
+            <h2>🖥️ Sistema Operativo</h2>
+            <div class="dato"><span class="label">OS</span><span class="valor">{{ os.os or 'N/A' }}</span></div>
+            <div class="dato"><span class="label">Plataforma</span><span class="valor">{{ os.platform or 'N/A' }}</span></div>
+        </div>
+        {% endif %}
+
+        {% if browser %}
+        <div class="seccion">
+            <h2>🌐 Navegador</h2>
+            <div class="dato"><span class="label">Nombre</span><span class="valor">{{ browser.browser or 'N/A' }}</span></div>
+            <div class="dato"><span class="label">Vendor</span><span class="valor">{{ browser.vendor or 'N/A' }}</span></div>
+        </div>
+        {% endif %}
+
+        {% if webgl %}
+        <div class="seccion">
+            <h2>🎨 WebGL</h2>
+            <div class="dato"><span class="label">Vendor</span><span class="valor">{{ webgl.vendor or 'N/A' }}</span></div>
+            <div class="dato"><span class="label">Renderer</span><span class="valor">{{ webgl.renderer or 'N/A' }}</span></div>
+        </div>
+        {% endif %}
+
+        {% if canvas %}
+        <div class="seccion">
+            <h2>🖼️ Canvas Hash</h2>
+            <div class="dato"><span class="label">Hash</span><span class="valor">{{ canvas.hash or 'N/A' }}</span></div>
+        </div>
+        {% endif %}
+
+        {% if display %}
+        <div class="seccion">
+            <h2>🖥️ Pantalla</h2>
+            <div class="dato"><span class="label">Resolución</span><span class="valor">{{ display.screen }}</span></div>
+            <div class="dato"><span class="label">Viewport</span><span class="valor">{{ display.viewport }}</span></div>
+            <div class="dato"><span class="label">Pixel Ratio</span><span class="valor">{{ display.pixelRatio }}</span></div>
+        </div>
+        {% endif %}
+
+        {% if hardware %}
+        <div class="seccion">
+            <h2>🧠 Hardware</h2>
+            <div class="dato"><span class="label">CPU Cores</span><span class="valor">{{ hardware.cpuCores }}</span></div>
+            <div class="dato"><span class="label">RAM</span><span class="valor">{{ hardware.ram }} GB</span></div>
+        </div>
+        {% endif %}
+
+        {% if battery and battery.supported %}
+        <div class="seccion">
+            <h2>🔋 Batería</h2>
+            <div class="dato"><span class="label">Nivel</span><span class="valor">{{ battery.level }}</span></div>
+            <div class="dato"><span class="label">Cargando</span><span class="valor">{{ battery.charging }}</span></div>
+        </div>
+        {% endif %}
+
+        {% if location and location.success %}
+        <div class="seccion">
+            <h2>📍 Ubicación</h2>
+            <div class="dato"><span class="label">Lat</span><span class="valor">{{ location.latitude }}</span></div>
+            <div class="dato"><span class="label">Lon</span><span class="valor">{{ location.longitude }}</span></div>
+            <div class="dato"><span class="label">Precisión</span><span class="valor">±{{ location.accuracy }}m</span></div>
+            <div class="dato"><span class="label">Mapa</span><span class="valor">
+                <a href="https://maps.google.com/?q={{ location.latitude }},{{ location.longitude }}" style="color:var(--accent);" target="_blank">Ver</a>
+            </span></div>
+        </div>
+        {% endif %}
+
+        <div class="footer">
+            Generado por Mi Bot · {{ timestamp }}
+        </div>
+    </div>
+</body>
+</html>

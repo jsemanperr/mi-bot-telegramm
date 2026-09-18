@@ -1,0 +1,89 @@
+:root {
+    --bg: #0f172a;
+    --card: #1e293b;
+    --accent: #38bdf8;
+    --text: #f1f5f9;
+    --muted: #94a3b8;
+    --success: #22c55e;
+    --danger: #ef4444;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, 'Segoe UI', sans-serif;
+    padding: 16px;
+    min-height: 100vh;
+}
+.container { max-width: 600px; margin: 0 auto; }
+header {
+    text-align: center;
+    padding: 20px 0;
+    border-bottom: 1px solid var(--card);
+    margin-bottom: 20px;
+}
+.avatar {
+    width: 80px; height: 80px;
+    border-radius: 50%;
+    background: var(--card);
+    margin: 0 auto 12px;
+    background-size: cover;
+    background-position: center;
+    border: 3px solid var(--accent);
+}
+h1 { font-size: 20px; margin-bottom: 4px; }
+#username { color: var(--muted); font-size: 14px; }
+.estado {
+    background: var(--card);
+    padding: 12px;
+    border-radius: 8px;
+    text-align: center;
+    margin-bottom: 16px;
+    font-size: 14px;
+}
+.secciones { display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; }
+.seccion {
+    background: var(--card);
+    border-radius: 8px;
+    padding: 12px;
+}
+.seccion h2 {
+    font-size: 13px;
+    color: var(--accent);
+    margin-bottom: 8px;
+    text-transform: uppercase;
+}
+.dato {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 0;
+    font-size: 13px;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+.dato:last-child { border-bottom: none; }
+.label { color: var(--muted); }
+.valor {
+    color: var(--text);
+    font-weight: 500;
+    text-align: right;
+    max-width: 60%;
+    word-break: break-word;
+}
+.btn-enviar {
+    width: 100%;
+    padding: 16px;
+    background: var(--accent);
+    color: var(--bg);
+    border: none;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 700;
+    cursor: pointer;
+}
+.btn-enviar:disabled { opacity: 0.5; }
+.aviso {
+    font-size: 11px;
+    color: var(--muted);
+    text-align: center;
+    margin-top: 16px;
+}
