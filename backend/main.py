@@ -51,6 +51,10 @@ app = FastAPI(title="Mi Bot de Datos")
 
 # Servir la Mini App como archivos estáticos
 app.mount("/mini-app", StaticFiles(directory=str(MINI_APP_DIR), html=True), name="mini-app")
+@app.get("/mini-app", include_in_schema=False)
+@app.get("/mini-app/", include_in_schema=False)
+def mini_app_inicio():
+    return FileResponse(MINI_APP_DIR / "index.html")
 
 # Jinja2
 env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)))
