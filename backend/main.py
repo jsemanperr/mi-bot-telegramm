@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
 main.py
 =======
@@ -176,17 +176,18 @@ async def iniciar_bot_telegram():
         )
         logger.info("Bot de Telegram iniciado mediante webhook")
     else:
-        logger.warning(
-            "Bot iniciado sin webhook: configura RAILWAY_URL o "
-            "RAILWAY_PUBLIC_DOMAIN para recibir mensajes"
-        )
+        await bot_app.updater.start_polling(drop_pending_updates=True)
+        logger.info("Bot de Telegram iniciado mediante polling")
 
 
 @app.on_event("shutdown")
 async def detener_bot_telegram():
     """Elimina el webhook y detiene limpiamente la aplicación del bot."""
     if bot_app is not None:
-        await bot_app.bot.delete_webhook()
+        if RAILWAY_URL:
+            await bot_app.bot.delete_webhook()
+        else:
+            await bot_app.updater.stop()
         await bot_app.stop()
         await bot_app.shutdown()
 
