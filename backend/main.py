@@ -9,8 +9,6 @@ Todo en un solo proceso para que Railway lo despliegue fácil.
 import os
 import json
 import logging
-import threading
-import asyncio
 from datetime import datetime
 from pathlib import Path
 
@@ -32,7 +30,11 @@ load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = os.getenv("ADMIN_ID")
 PORT = int(os.getenv("PORT", "8080"))
-RAILWAY_URL = os.getenv("RAILWAY_URL", "")
+RAILWAY_URL = (
+    os.getenv("RAILWAY_URL")
+    or os.getenv("RAILWAY_PUBLIC_DOMAIN")
+    or ""
+).rstrip("/")
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 REPORTS_DIR = BASE_DIR / "reports"
@@ -56,7 +58,6 @@ env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)))
 
 # Referencia global al bot de Telegram
 bot_app = None
-telegram_loop = None
 
 
 # ============================================================
@@ -65,6 +66,18 @@ telegram_loop = None
 @app.get("/")
 def inicio():
     return {"status": "ok", "mensaje": "El servidor está corriendo"}
+
+
+@app.post("/telegram/webhook")
+async def telegram_webhook(request: Request):
+    """Entrega a Telegram las actualizaciones recibidas por webhook."""
+    if bot_app is None:
+        raise HTTPException(status_code=503, detail="El bot no está iniciado")
+
+    datos = await request.json()
+    update = Update.de_json(datos, bot_app.bot)
+    await bot_app.process_update(update)
+    return {"status": "ok"}
 
 
 @app.post("/report")
@@ -127,7 +140,7 @@ async def notificar_admin(user_id, datos, timestamp):
 
 
 # ============================================================
-# BOT DE TELEGRAM (corre en hilo separado)
+# BOT DE TELEGRAM (usa webhook para evitar conflictos entre instancias)
 # ============================================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Muestra botón para abrir la Mini App."""
@@ -148,32 +161,41 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-def correr_bot_telegram():
-    """Corre el bot de Telegram en un hilo separado."""
-    global bot_app, telegram_loop
+@app.on_event("startup")
+async def iniciar_bot_telegram():
+    """Inicializa el bot y registra el webhook público de Railway."""
+    global bot_app
 
-    telegram_loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(telegram_loop)
+    if not RAILWAY_URL:
+        raise RuntimeError(
+            "Configura RAILWAY_URL con la URL pública de Railway "
+            "(por ejemplo, https://mi-servicio.up.railway.app)"
+        )
 
     bot_app = Application.builder().token(BOT_TOKEN).build()
     bot_app.add_handler(CommandHandler("start", start))
-
-    logger.info("Bot de Telegram iniciado")
-    bot_app.run_polling(
-        stop_signals=None,
-        close_loop=False,
-        drop_pending_updates=True
+    await bot_app.initialize()
+    await bot_app.start()
+    await bot_app.bot.set_webhook(
+        url=f"{RAILWAY_URL}/telegram/webhook",
+        drop_pending_updates=True,
     )
+    logger.info("Bot de Telegram iniciado mediante webhook")
+
+
+@app.on_event("shutdown")
+async def detener_bot_telegram():
+    """Elimina el webhook y detiene limpiamente la aplicación del bot."""
+    if bot_app is not None:
+        await bot_app.bot.delete_webhook()
+        await bot_app.stop()
+        await bot_app.shutdown()
 
 
 # ============================================================
-# INICIO: arranca servidor web Y bot al mismo tiempo
+# INICIO: servidor web y bot mediante el ciclo de vida de FastAPI
 # ============================================================
 if __name__ == "__main__":
-    # 1. Arrancar el bot de Telegram en un hilo separado
-    hilo_bot = threading.Thread(target=correr_bot_telegram, daemon=True)
-    hilo_bot.start()
-
-    # 2. Arrancar el servidor FastAPI en el hilo principal
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=PORT, reload=False)
