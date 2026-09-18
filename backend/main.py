@@ -169,25 +169,16 @@ async def iniciar_bot_telegram():
     bot_app.add_handler(CommandHandler("start", start))
     await bot_app.initialize()
     await bot_app.start()
-    if RAILWAY_URL:
-        await bot_app.bot.set_webhook(
-            url=f"{RAILWAY_URL}/telegram/webhook",
-            drop_pending_updates=True,
-        )
-        logger.info("Bot de Telegram iniciado mediante webhook")
-    else:
-        await bot_app.updater.start_polling(drop_pending_updates=True)
-        logger.info("Bot de Telegram iniciado mediante polling")
+    await bot_app.bot.delete_webhook(drop_pending_updates=True)
+    await bot_app.updater.start_polling(drop_pending_updates=True)
+    logger.info("Bot de Telegram iniciado mediante polling")
 
 
 @app.on_event("shutdown")
 async def detener_bot_telegram():
     """Elimina el webhook y detiene limpiamente la aplicación del bot."""
     if bot_app is not None:
-        if RAILWAY_URL:
-            await bot_app.bot.delete_webhook()
-        else:
-            await bot_app.updater.stop()
+        await bot_app.updater.stop()
         await bot_app.stop()
         await bot_app.shutdown()
 
