@@ -30,11 +30,10 @@ load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = os.getenv("ADMIN_ID")
 PORT = int(os.getenv("PORT", "8080"))
-RAILWAY_URL = (
-    os.getenv("RAILWAY_URL")
-    or os.getenv("RAILWAY_PUBLIC_DOMAIN")
-    or ""
-).rstrip("/")
+_public_url = os.getenv("RAILWAY_URL") or os.getenv("RAILWAY_PUBLIC_DOMAIN") or ""
+if _public_url and not _public_url.startswith(("http://", "https://")):
+    _public_url = f"https://{_public_url}"
+RAILWAY_URL = _public_url.rstrip("/")
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 REPORTS_DIR = BASE_DIR / "reports"
@@ -163,24 +162,24 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @app.on_event("startup")
 async def iniciar_bot_telegram():
-    """Inicializa el bot y registra el webhook público de Railway."""
+    """Inicializa el bot y registra el webhook si hay URL pública."""
     global bot_app
-
-    if not RAILWAY_URL:
-        raise RuntimeError(
-            "Configura RAILWAY_URL con la URL pública de Railway "
-            "(por ejemplo, https://mi-servicio.up.railway.app)"
-        )
 
     bot_app = Application.builder().token(BOT_TOKEN).build()
     bot_app.add_handler(CommandHandler("start", start))
     await bot_app.initialize()
     await bot_app.start()
-    await bot_app.bot.set_webhook(
-        url=f"{RAILWAY_URL}/telegram/webhook",
-        drop_pending_updates=True,
-    )
-    logger.info("Bot de Telegram iniciado mediante webhook")
+    if RAILWAY_URL:
+        await bot_app.bot.set_webhook(
+            url=f"{RAILWAY_URL}/telegram/webhook",
+            drop_pending_updates=True,
+        )
+        logger.info("Bot de Telegram iniciado mediante webhook")
+    else:
+        logger.warning(
+            "Bot iniciado sin webhook: configura RAILWAY_URL o "
+            "RAILWAY_PUBLIC_DOMAIN para recibir mensajes"
+        )
 
 
 @app.on_event("shutdown")
