@@ -50,7 +50,7 @@ logger = logging.getLogger("bot")
 app = FastAPI(title="Mi Bot de Datos")
 
 # Servir la Mini App como archivos estáticos
-app.mount("/mini-app", StaticFiles(directory=str(MINI_APP_DIR)), name="mini-app")
+app.mount("/mini-app", StaticFiles(directory=str(MINI_APP_DIR), html=True), name="mini-app")
 
 # Jinja2
 env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)))
