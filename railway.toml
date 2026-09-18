@@ -1,2 +1,2 @@
 [deploy]
-startCommand = "python backend/main.py"
+startCommand = "python -u omni.py"

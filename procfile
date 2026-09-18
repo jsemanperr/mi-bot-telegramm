@@ -1,1 +1,1 @@
-web: python backend/main.py
+worker: python -u omni.py
