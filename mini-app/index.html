@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Recolector</title>
+    <link rel="stylesheet" href="/mini-app/styles.css">
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="avatar" id="avatar"></div>
+            <h1 id="nombre">Cargando...</h1>
+            <p id="username"></p>
+        </header>
+
+        <div id="estado" class="estado">🔍 Recolectando datos...</div>
+        <div class="secciones" id="secciones"></div>
+
+        <button id="btn-enviar" class="btn-enviar" disabled>
+            📤 Enviar al bot
+        </button>
+
+        <p class="aviso">
+            Al usar esta app, aceptas que se recopilen datos técnicos de tu dispositivo.
+        </p>
+    </div>
+    <script src="/mini-app/collector.js"></script>
+</body>
+</html>
