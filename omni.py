@@ -26,8 +26,8 @@ PORT = int(os.environ.get("PORT", "8080").strip())
 # ========== WORKERS ==========
 URLS = []  # Integraciones externas desactivadas por seguridad
 
-if not TOKEN or not ADMIN_ID:
-    raise ValueError("❌ Faltan TOKEN o ADMIN_ID en variables de entorno")
+if not TOKEN:
+    raise ValueError("❌ Falta BOT_TOKEN en variables de entorno")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
