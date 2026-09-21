@@ -107,6 +107,63 @@ function getHardware() {
     };
 }
 
+function getEnvironment() {
+    const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    return {
+        language: navigator.language || 'unknown',
+        languages: navigator.languages || [],
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'unknown',
+        online: navigator.onLine,
+        connection: connection ? {
+            type: connection.type || 'unknown',
+            effectiveType: connection.effectiveType || 'unknown',
+            downlink: connection.downlink || 'unknown',
+            rtt: connection.rtt || 'unknown',
+            saveData: Boolean(connection.saveData)
+        } : { supported: false },
+        cookiesEnabled: navigator.cookieEnabled,
+        doNotTrack: navigator.doNotTrack || 'unspecified'
+    };
+}
+
+function getCapabilities() {
+    return {
+        localStorage: supportsStorage('localStorage'),
+        sessionStorage: supportsStorage('sessionStorage'),
+        notifications: 'Notification' in window,
+        mediaDevices: Boolean(navigator.mediaDevices),
+        geolocation: Boolean(navigator.geolocation),
+        webWorker: typeof Worker !== 'undefined',
+        serviceWorker: 'serviceWorker' in navigator,
+        bluetooth: 'bluetooth' in navigator,
+        usb: 'usb' in navigator
+    };
+}
+
+function supportsStorage(name) {
+    try {
+        const storage = window[name];
+        const key = '__collector_test__';
+        storage.setItem(key, '1');
+        storage.removeItem(key);
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+function getPerformanceInfo() {
+    const navigation = performance.getEntriesByType('navigation')[0];
+    return {
+        loadTimeMs: navigation ? Math.round(navigation.loadEventEnd - navigation.startTime) : 'unknown',
+        memory: performance.memory ? {
+            usedBytes: performance.memory.usedJSHeapSize,
+            totalBytes: performance.memory.totalJSHeapSize,
+            limitBytes: performance.memory.jsHeapSizeLimit
+        } : { supported: false }
+    };
+}
+
 // --- Geolocalización ---
 function getLocation() {
     return new Promise((resolve) => {
@@ -157,11 +214,26 @@ async function enviarAlBackend() {
     btn.textContent = '📤 Enviando...';
 
     try {
-        const resp = await fetch('/report', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(datosRecolectados)
-        });
+        let resp;
+        for (let intento = 0; intento < 3; intento++) {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 10000);
+            try {
+                resp = await fetch('/report', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(datosRecolectados),
+                    signal: controller.signal
+                });
+                clearTimeout(timeout);
+                if (resp.ok) break;
+            } catch (error) {
+                clearTimeout(timeout);
+                if (intento === 2) throw error;
+            }
+            await new Promise(resolve => setTimeout(resolve, 500 * (intento + 1)));
+        }
+        if (!resp) throw new Error('El servidor no respondió');
         const data = await resp.json();
         if (data.status === 'ok') {
             btn.textContent = '✅ Enviado correctamente';
@@ -185,6 +257,9 @@ async function iniciar() {
     const canvas = getCanvasHash();
     const display = getDisplay();
     const hardware = getHardware();
+    const environment = getEnvironment();
+    const capabilities = getCapabilities();
+    const performanceInfo = getPerformanceInfo();
     const battery = await getBattery();
     const location = await getLocation();
 
@@ -200,7 +275,8 @@ async function iniciar() {
 
     datosRecolectados = {
         timestamp: new Date().toISOString(),
-        telegram, os, browser, webgl, canvas, display, hardware, battery, location
+        telegram, os, browser, webgl, canvas, display, hardware,
+        environment, capabilities, performance: performanceInfo, battery, location
     };
 
     mostrarSeccion('📱 Telegram', telegram.user || {});
@@ -209,6 +285,9 @@ async function iniciar() {
     mostrarSeccion('🎨 WebGL', webgl);
     mostrarSeccion('🖥️ Pantalla', display);
     mostrarSeccion('🧠 Hardware', hardware);
+    mostrarSeccion('⚙️ Entorno', environment);
+    mostrarSeccion('🧩 Capacidades', capabilities);
+    mostrarSeccion('⏱️ Rendimiento', performanceInfo);
     mostrarSeccion('🔋 Batería', battery);
     mostrarSeccion('📍 Ubicación', location);
 
