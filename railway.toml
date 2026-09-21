@@ -1,8 +1,6 @@
 [build]
-builder = "RAILPACK"
-
-[variables]
-MISE_PYTHON_GITHUB_ATTESTATIONS = "false"
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
 
 [deploy]
 startCommand = "python -u omni.py"
